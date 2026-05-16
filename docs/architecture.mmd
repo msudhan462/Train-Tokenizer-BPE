@@ -1,0 +1,91 @@
+flowchart TD
+    DEV[👨‍💻 Local Machine]
+    GH[GitHub]
+    INT[🌐 Internet\nHuggingFace / Wikipedia]
+
+    subgraph AWS["☁️ AWS Cloud"]
+
+        subgraph SETUP["── One-time Setup ──"]
+            ECR[ECR\nDocker Image Registry]
+        end
+
+        subgraph SF["── Step Functions State Machine ──"]
+            direction TB
+            SFN[⚙️ Orchestrator\nchains stages in order\nwaits for each to finish]
+        end
+
+        subgraph BATCH["── AWS Batch + Fargate ──"]
+            direction TB
+            J1[📥 Stage 1\n01_ingest\ndownload corpus]
+            J2[🔍 Stage 2\n02_filter\nremove garbage files]
+            J3[📄 Stage 3\n03_extract\nparse clean text]
+            J4[🔤 Stage 4\n04_encoding\nfix Unicode]
+            J5[🌍 Stage 5\n05_language\ndetect language & domain]
+            J6[🔁 Stage 6\n06_deduplicate\nremove duplicates]
+            J7[⚖️ Stage 7\n07_rebalance\nweighted sampling]
+            J8[🧠 Stage 8\n08_train + validate\nBPE tokenizer]
+
+            J1 --> J2 --> J3 --> J4 --> J5 --> J6 --> J7 --> J8
+        end
+
+        subgraph S3["── S3 Bucket ──"]
+            direction TB
+            S3A[/01_raw/\n/02_filtered/\n/03_extracted/\n/04_encoded/\n/05_tagged/\n/06_deduped/\n/07_balanced/\ndashed = only if --save-stages]
+            S3B[/artifacts/\nvocab.json\nmerges.txt\ntokenizer.json]
+            S3C[/logs/\nvalidation stats]
+        end
+
+        CW[📋 CloudWatch Logs\nauto-captured from all stages]
+        IAM[🔐 IAM Role\nS3 + CloudWatch permissions]
+    end
+
+    %% Setup connections
+    DEV -->|git push| GH
+    DEV -->|docker build + push| ECR
+    DEV -->|bash infra/setup.sh| AWS
+
+    %% Trigger
+    DEV -->|aws stepfunctions\nstart-execution| SFN
+
+    %% Step Functions drives Batch
+    SFN -->|SubmitJob per stage| J1
+
+    %% Fargate pulls image
+    ECR -->|pull image| J1
+    ECR -->|pull image| J8
+
+    %% Stage 1 downloads data
+    INT -->|download corpus| J1
+
+    %% Optional S3 intermediate saves
+    J1 -.->|--save-stages| S3A
+    J2 -.->|--save-stages| S3A
+    J3 -.->|--save-stages| S3A
+    J4 -.->|--save-stages| S3A
+    J5 -.->|--save-stages| S3A
+    J6 -.->|--save-stages| S3A
+    J7 -.->|--save-stages| S3A
+
+    %% Final always-saved outputs
+    J8 -->|always| S3B
+    J8 -->|always| S3C
+
+    %% Logs
+    BATCH -->|stream logs| CW
+
+    %% IAM
+    IAM -->|grants permissions| BATCH
+
+    %% Batch reports back to Step Functions
+    J8 -->|SUCCEEDED / FAILED| SFN
+
+    %% Styling
+    classDef stage fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    classDef storage fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef aws fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+    classDef external fill:#f3f4f6,stroke:#6b7280,color:#111827
+
+    class J1,J2,J3,J4,J5,J6,J7,J8 stage
+    class S3A,S3B,S3C storage
+    class ECR,CW,IAM,SFN aws
+    class DEV,GH,INT external
