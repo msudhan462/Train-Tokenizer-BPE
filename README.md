@@ -2,7 +2,7 @@
 
 A production-grade Byte Pair Encoding (BPE) tokenizer pipeline modeled after how frontier AI companies (OpenAI, Google, Meta) train tokenizers at 100TB+ scale. Covers the full 8-stage preprocessing and training pipeline — from raw web dumps to a trained, validated tokenizer artifact in S3.
 
-Built as a resume/portfolio project. One manual trigger runs the entire pipeline end-to-end.
+Built as a resume/portfolio project. One manual CLI command triggers the entire pipeline via AWS Step Functions → Batch Fargate.
 
 LinkedIn write-up: https://www.linkedin.com/feed/update/urn:li:activity:7460340028435632128/
 
@@ -29,45 +29,66 @@ Most tutorials jump straight to BPE training. Real industry pipelines run 8 stag
 |-------|--------|
 | Language | Python 3.11+ |
 | Tokenizer | BPE — HuggingFace `tokenizers` *(or SentencePiece / tiktoken — to be finalized)* |
-| Compute | AWS EC2 Spot Instance (c5.2xlarge) |
-| Storage | AWS S3 (raw → processed → artifacts → logs) |
-| Orchestration | Single Python runner script (`src/run.py`) — no Step Functions, no IaC |
+| Containers | Docker — single image, stage selected via `STAGE` env var |
+| Container Registry | AWS ECR |
+| Compute | AWS Batch (Fargate) — no EC2, no SSH |
+| Orchestration | AWS Step Functions — state machine chains all 8 stages |
+| Storage | AWS S3 |
+| Logging | AWS CloudWatch (automatic from Fargate) |
 | CI | GitHub Actions (ruff lint + mypy type-check only) |
 
 ---
 
 ## Architecture
 
-Intermediate S3 writes are **optional** — pass `--save-stages` flag to persist each stage's output to S3, or omit it to stream stage-to-stage in memory (faster, cheaper).
-
 ```
 [ Local Machine ]
       |
-      | SSH (manual trigger)
+      | aws stepfunctions start-execution (one manual command)
       v
-[ EC2 Spot Instance ]
+[ Step Functions State Machine ]
       |
-      |-- 01_ingest/download.py        --> S3 /01_raw          (if --save-stages)
-      |-- 02_filter/content_filter.py  --> S3 /02_filtered     (if --save-stages)
-      |-- 03_extract/text_extract.py   --> S3 /03_extracted    (if --save-stages)
-      |-- 04_encoding/encoding_recovery.py --> S3 /04_encoded  (if --save-stages)
-      |-- 05_language/lang_detect.py   --> S3 /05_tagged       (if --save-stages)
-      |-- 06_deduplicate/dedup.py      --> S3 /06_deduped      (if --save-stages)
-      |-- 07_rebalance/rebalance.py    --> S3 /07_balanced     (if --save-stages)
-      |-- 08_train/train.py            --> S3 /artifacts       (always saved)
-      |-- 08_train/validate.py         --> S3 /logs            (always saved)
+      |-- Task 1 --> Batch Job: 01_ingest
+      |-- Task 2 --> Batch Job: 02_filter
+      |-- Task 3 --> Batch Job: 03_extract
+      |-- Task 4 --> Batch Job: 04_encoding
+      |-- Task 5 --> Batch Job: 05_language
+      |-- Task 6 --> Batch Job: 06_deduplicate
+      |-- Task 7 --> Batch Job: 07_rebalance
+      |-- Task 8 --> Batch Job: 08_train
+      |-- Task 9 --> Batch Job: 08_validate
+      v
+[ AWS Batch — Fargate ]          [ ECR ]
+  runs Docker container   <---   stores image
+      |
+      | (optional: --save-stages)
       v
 [ S3 Bucket ]
-   /01_raw        <- original corpus chunks
-   /02_filtered   <- after content filtering
-   /03_extracted  <- clean text only
-   /04_encoded    <- Unicode-fixed text
-   /05_tagged     <- language + domain metadata
-   /06_deduped    <- deduplicated corpus
-   /07_balanced   <- rebalanced/sampled corpus
+   /01_raw        <- original corpus chunks          (if --save-stages)
+   /02_filtered   <- after content filtering         (if --save-stages)
+   /03_extracted  <- clean text only                 (if --save-stages)
+   /04_encoded    <- Unicode-fixed text              (if --save-stages)
+   /05_tagged     <- language + domain metadata      (if --save-stages)
+   /06_deduped    <- deduplicated corpus             (if --save-stages)
+   /07_balanced   <- rebalanced/sampled corpus       (if --save-stages)
    /artifacts     <- vocab.json, merges.txt, tokenizer.json  (always)
-   /logs          <- per-stage stats and validation output   (always)
+   /logs          <- per-stage stats + validation           (always)
+
+[ CloudWatch Logs ]  <- all Fargate container logs (automatic)
 ```
+
+---
+
+## AWS Services Used
+
+| Service | Role | Cost driver |
+|---------|------|-------------|
+| **Step Functions** | Orchestrate 8-stage state machine | ~$0.025 per 1000 state transitions (essentially free here) |
+| **AWS Batch (Fargate)** | Run each stage as a container job | ~$0.40/hr per job (pay per use, no idle) |
+| **ECR** | Store Docker image | ~$0.10/GB/month |
+| **S3** | Store corpus + artifacts | ~$0.023/GB/month |
+| **CloudWatch** | Container logs | ~$0.50/GB ingested |
+| **Total (one run)** | | **~$2–4** |
 
 ---
 
@@ -75,39 +96,43 @@ Intermediate S3 writes are **optional** — pass `--save-stages` flag to persist
 
 ```
 train-tokenizer/
-├── README.md                            # full project context
-├── requirements.txt                     # Python dependencies
+├── README.md                                  # full project context
+├── Dockerfile                                 # single image — stage set via STAGE env var
+├── requirements.txt                           # Python dependencies
 ├── .gitignore
 │
 ├── src/
-│   ├── run.py                           # orchestrator — runs all 8 stages in sequence
 │   ├── 01_ingest/
-│   │   └── download.py                  # stream corpus data, upload shards to S3
+│   │   └── download.py                        # stream corpus, upload shards to S3
 │   ├── 02_filter/
-│   │   └── content_filter.py            # detect & discard HTML, PDFs, binaries
+│   │   └── content_filter.py                  # detect & discard HTML, PDFs, binaries
 │   ├── 03_extract/
-│   │   └── text_extract.py              # extract clean text from PDFs, HTML, OCR
+│   │   └── text_extract.py                    # extract clean text from PDFs, HTML, OCR
 │   ├── 04_encoding/
-│   │   └── encoding_recovery.py         # detect and fix Unicode/encoding corruption
+│   │   └── encoding_recovery.py               # detect and fix Unicode/encoding corruption
 │   ├── 05_language/
-│   │   └── lang_detect.py               # tag documents by language, domain, source
+│   │   └── lang_detect.py                     # tag documents by language, domain, source
 │   ├── 06_deduplicate/
-│   │   └── dedup.py                     # MinHash dedup, remove boilerplate/repeated content
+│   │   └── dedup.py                           # MinHash dedup, remove boilerplate
 │   ├── 07_rebalance/
-│   │   └── rebalance.py                 # weighted sampling across languages and domains
+│   │   └── rebalance.py                       # weighted sampling across languages/domains
 │   └── 08_train/
-│       ├── train.py                     # BPE tokenizer training on balanced corpus
-│       └── validate.py                  # encode/decode validation, log stats
+│       ├── train.py                           # BPE tokenizer training
+│       └── validate.py                        # encode/decode validation, log stats
 │
 ├── infra/
-│   └── setup.sh                         # AWS CLI: create S3 bucket, launch EC2 spot
+│   ├── setup.sh                               # provision ECR, Batch, Step Functions via AWS CLI
+│   ├── batch/
+│   │   └── job_definitions.json               # Batch job definition for each stage
+│   └── stepfunctions/
+│       └── state_machine.json                 # Step Functions state machine definition (ASL)
 │
 ├── docs/
-│   └── architecture.png                 # architecture diagram
+│   └── architecture.png                       # architecture diagram
 │
 └── .github/
     └── workflows/
-        └── lint.yml                     # ruff lint + mypy type-check
+        └── lint.yml                           # ruff lint + mypy type-check
 ```
 
 ---
@@ -115,54 +140,51 @@ train-tokenizer/
 ## How to Run (One-Time Manual)
 
 ```bash
-# 1. Provision AWS resources
+# 1. Provision all AWS resources (ECR, Batch, Step Functions)
 bash infra/setup.sh
 
-# 2. SSH into EC2
-ssh -i your-key.pem ec2-user@<EC2_PUBLIC_IP>
+# 2. Build and push Docker image to ECR
+aws ecr get-login-password | docker login --username AWS --password-stdin <ECR_URI>
+docker build -t tokenizer .
+docker tag tokenizer:latest <ECR_URI>/tokenizer:latest
+docker push <ECR_URI>/tokenizer:latest
 
-# 3. Clone repo and install deps
-git clone https://github.com/msudhan462/Train-Tokenizer-BPE
-cd Train-Tokenizer-BPE
-pip install -r requirements.txt
+# 3. Trigger the full 8-stage pipeline (one command)
+aws stepfunctions start-execution \
+  --state-machine-arn <STATE_MACHINE_ARN> \
+  --input '{"bucket": "<S3_BUCKET>", "vocab_size": 32000, "save_stages": false}'
 
-# 4. Trigger full 8-stage pipeline
-python src/run.py --bucket <S3_BUCKET_NAME> --vocab-size 32000
-
-# Optional: persist each stage's output to S3 (useful for debugging / resuming)
-python src/run.py --bucket <S3_BUCKET_NAME> --vocab-size 32000 --save-stages
+# 4. Monitor in AWS Console → Step Functions → state machine execution
+#    or watch CloudWatch Logs for each stage
 ```
 
-Without `--save-stages`, stages stream data in memory (faster, cheaper). With it, each stage's output is saved to S3 so you can resume from any stage or inspect intermediate data. Logs always written to stdout and S3 `/logs`.
-
 ---
 
-## AWS Cost Estimate (one run)
+## How Step Functions + Batch Works
 
-| Resource | Est. Cost |
-|----------|-----------|
-| EC2 Spot c5.2xlarge (~4–8 hrs) | ~$0.40–$1.20 |
-| S3 storage (all stages) | ~$0.10–$0.50 |
-| Data transfer | ~$0.05 |
-| **Total** | **< $2** |
+```
+Step Functions state machine
+  ├── Each Task state calls: BatchSubmitJob API
+  ├── Waits for job SUCCEEDED / FAILED
+  ├── Passes S3 output path of stage N as input to stage N+1
+  └── On any failure: execution stops, CloudWatch has full logs
 
-Terminate EC2 after the run. S3 artifacts persist.
-
----
-
-## Output Artifacts (S3 `/artifacts`)
-
-- `vocab.json` — vocabulary (default 32k tokens)
-- `merges.txt` — BPE merge rules
-- `tokenizer.json` — full tokenizer config (HuggingFace format)
-- `logs/validation.txt` — per-language encode/decode stats + compression ratio
+Each Batch job
+  ├── Pulls Docker image from ECR
+  ├── Fargate spins up container (no EC2 managed)
+  ├── Runs src/<stage>/<script>.py
+  └── Exits — Fargate terminates automatically
+```
 
 ---
 
 ## Status
 
 - [ ] Tokenizer library chosen (HuggingFace / SentencePiece / tiktoken)
-- [ ] `infra/setup.sh`
+- [ ] `Dockerfile`
+- [ ] `infra/setup.sh` — ECR + Batch + Step Functions provisioning
+- [ ] `infra/batch/job_definitions.json`
+- [ ] `infra/stepfunctions/state_machine.json`
 - [ ] Stage 1: `01_ingest/download.py`
 - [ ] Stage 2: `02_filter/content_filter.py`
 - [ ] Stage 3: `03_extract/text_extract.py`
@@ -171,6 +193,5 @@ Terminate EC2 after the run. S3 artifacts persist.
 - [ ] Stage 6: `06_deduplicate/dedup.py`
 - [ ] Stage 7: `07_rebalance/rebalance.py`
 - [ ] Stage 8: `08_train/train.py` + `validate.py`
-- [ ] `src/run.py` orchestrator
 - [ ] Architecture diagram (`docs/architecture.png`)
 - [ ] End-to-end tested on AWS
