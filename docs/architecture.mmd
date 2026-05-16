@@ -1,42 +1,68 @@
+---
+config:
+  layout: elk
+---
 flowchart TD
     DEV[👨‍💻 Local Machine]
     GH[GitHub]
-    INT[🌐 Internet\nHuggingFace / Wikipedia]
+    INT[🌐 Internet
+HuggingFace / Wikipedia]
 
     subgraph AWS["☁️ AWS Cloud"]
 
         subgraph SETUP["── One-time Setup ──"]
-            ECR[ECR\nDocker Image Registry]
+            ECR[ECR
+Docker Image Registry]
         end
 
         subgraph SF["── Step Functions State Machine ──"]
             direction TB
-            SFN[⚙️ Orchestrator\nchains stages in order\nwaits for each to finish]
+            SFN[⚙️ Orchestrator
+chains stages in order
+waits for each to finish]
         end
 
         subgraph BATCH["── AWS Batch + Fargate ──"]
             direction TB
-            J1[📥 Stage 1\n01_ingest\ndownload corpus]
-            J2[🔍 Stage 2\n02_filter\nremove garbage files]
-            J3[📄 Stage 3\n03_extract\nparse clean text]
-            J4[🔤 Stage 4\n04_encoding\nfix Unicode]
-            J5[🌍 Stage 5\n05_language\ndetect language & domain]
-            J6[🔁 Stage 6\n06_deduplicate\nremove duplicates]
-            J7[⚖️ Stage 7\n07_rebalance\nweighted sampling]
-            J8[🧠 Stage 8\n08_train + validate\nBPE tokenizer]
+            J1[📥 Stage 1
+01_ingest
+download corpus]
+            J2[🔍 Stage 2
+02_filter
+remove garbage files]
+            J3[📄 Stage 3
+03_extract
+parse clean text]
+            J4[🔤 Stage 4
+04_encoding
+fix Unicode]
+            J5[🌍 Stage 5
+05_language
+detect language & domain]
+            J6[🔁 Stage 6
+06_deduplicate
+remove duplicates]
+            J7[⚖️ Stage 7
+07_rebalance
+weighted sampling]
+            J8[🧠 Stage 8
+08_train + validate
+BPE tokenizer]
 
             J1 --> J2 --> J3 --> J4 --> J5 --> J6 --> J7 --> J8
         end
 
         subgraph S3["── S3 Bucket ──"]
             direction TB
-            S3A[/01_raw/\n/02_filtered/\n/03_extracted/\n/04_encoded/\n/05_tagged/\n/06_deduped/\n/07_balanced/\ndashed = only if --save-stages]
-            S3B[/artifacts/\nvocab.json\nmerges.txt\ntokenizer.json]
-            S3C[/logs/\nvalidation stats]
+            S3A["/__p17__/"]
+            S3B["/__p18__/"]
+            S3C["/__p19__/"]
         end
 
-        CW[📋 CloudWatch Logs\nauto-captured from all stages]
-        IAM[🔐 IAM Role\nS3 + CloudWatch permissions]
+        CW[📋 CloudWatch Logs
+auto-captured from all stages]
+        IAM[🔐 IAM Role
+S3 + CloudWatch permissions]
     end
 
     %% Setup connections
@@ -45,7 +71,8 @@ flowchart TD
     DEV -->|bash infra/setup.sh| AWS
 
     %% Trigger
-    DEV -->|aws stepfunctions\nstart-execution| SFN
+    DEV -->|aws stepfunctions
+start-execution| SFN
 
     %% Step Functions drives Batch
     SFN -->|SubmitJob per stage| J1
