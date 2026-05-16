@@ -43,42 +43,6 @@ Most tutorials jump straight to BPE training. Real industry pipelines run 8 stag
 
 ![AWS Architecture](docs/AWS%20Architecture.png)
 
-```
-[ Local Machine ]
-      |
-      | aws stepfunctions start-execution (one manual command)
-      v
-[ Step Functions State Machine ]
-      |
-      |-- Task 1 --> Batch Job: 01_ingest
-      |-- Task 2 --> Batch Job: 02_filter
-      |-- Task 3 --> Batch Job: 03_extract
-      |-- Task 4 --> Batch Job: 04_encoding
-      |-- Task 5 --> Batch Job: 05_language
-      |-- Task 6 --> Batch Job: 06_deduplicate
-      |-- Task 7 --> Batch Job: 07_rebalance
-      |-- Task 8 --> Batch Job: 08_train
-      |-- Task 9 --> Batch Job: 08_validate
-      v
-[ AWS Batch — Fargate ]          [ ECR ]
-  runs Docker container   <---   stores image
-      |
-      | (optional: --save-stages)
-      v
-[ S3 Bucket ]
-   /01_raw        <- original corpus chunks          (if --save-stages)
-   /02_filtered   <- after content filtering         (if --save-stages)
-   /03_extracted  <- clean text only                 (if --save-stages)
-   /04_encoded    <- Unicode-fixed text              (if --save-stages)
-   /05_tagged     <- language + domain metadata      (if --save-stages)
-   /06_deduped    <- deduplicated corpus             (if --save-stages)
-   /07_balanced   <- rebalanced/sampled corpus       (if --save-stages)
-   /artifacts     <- vocab.json, merges.txt, tokenizer.json  (always)
-   /logs          <- per-stage stats + validation           (always)
-
-[ CloudWatch Logs ]  <- all Fargate container logs (automatic)
-```
-
 ---
 
 ## AWS Services Used
