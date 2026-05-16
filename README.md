@@ -38,6 +38,8 @@ Most tutorials jump straight to BPE training. Real industry pipelines run 8 stag
 
 ## Architecture
 
+Intermediate S3 writes are **optional** — pass `--save-stages` flag to persist each stage's output to S3, or omit it to stream stage-to-stage in memory (faster, cheaper).
+
 ```
 [ Local Machine ]
       |
@@ -45,25 +47,26 @@ Most tutorials jump straight to BPE training. Real industry pipelines run 8 stag
       v
 [ EC2 Spot Instance ]
       |
-      |-- Stage 1: Ingest       --> stream corpus, upload raw shards --> S3 /raw
-      |-- Stage 2: Filter       --> remove binary/garbage files      --> S3 /filtered
-      |-- Stage 3: Extract      --> parse clean text                 --> S3 /extracted
-      |-- Stage 4: Encoding     --> fix Unicode corruption           --> S3 /encoded
-      |-- Stage 5: Language     --> tag language + domain            --> S3 /tagged
-      |-- Stage 6: Deduplicate  --> remove duplicates/boilerplate    --> S3 /deduped
-      |-- Stage 7: Rebalance    --> weighted sampling                --> S3 /balanced
-      |-- Stage 8: Train        --> BPE training + validation        --> S3 /artifacts
+      |-- 01_ingest/download.py        --> S3 /01_raw          (if --save-stages)
+      |-- 02_filter/content_filter.py  --> S3 /02_filtered     (if --save-stages)
+      |-- 03_extract/text_extract.py   --> S3 /03_extracted    (if --save-stages)
+      |-- 04_encoding/encoding_recovery.py --> S3 /04_encoded  (if --save-stages)
+      |-- 05_language/lang_detect.py   --> S3 /05_tagged       (if --save-stages)
+      |-- 06_deduplicate/dedup.py      --> S3 /06_deduped      (if --save-stages)
+      |-- 07_rebalance/rebalance.py    --> S3 /07_balanced     (if --save-stages)
+      |-- 08_train/train.py            --> S3 /artifacts       (always saved)
+      |-- 08_train/validate.py         --> S3 /logs            (always saved)
       v
 [ S3 Bucket ]
-   /raw          <- original corpus chunks
-   /filtered     <- after content filtering
-   /extracted    <- clean text only
-   /encoded      <- Unicode-fixed text
-   /tagged       <- language + domain metadata
-   /deduped      <- deduplicated corpus
-   /balanced     <- rebalanced/sampled corpus
-   /artifacts    <- vocab.json, merges.txt, tokenizer.json
-   /logs         <- per-stage logs and stats
+   /01_raw        <- original corpus chunks
+   /02_filtered   <- after content filtering
+   /03_extracted  <- clean text only
+   /04_encoded    <- Unicode-fixed text
+   /05_tagged     <- language + domain metadata
+   /06_deduped    <- deduplicated corpus
+   /07_balanced   <- rebalanced/sampled corpus
+   /artifacts     <- vocab.json, merges.txt, tokenizer.json  (always)
+   /logs          <- per-stage stats and validation output   (always)
 ```
 
 ---
@@ -125,9 +128,12 @@ pip install -r requirements.txt
 
 # 4. Trigger full 8-stage pipeline
 python src/run.py --bucket <S3_BUCKET_NAME> --vocab-size 32000
+
+# Optional: persist each stage's output to S3 (useful for debugging / resuming)
+python src/run.py --bucket <S3_BUCKET_NAME> --vocab-size 32000 --save-stages
 ```
 
-Each stage reads from the previous stage's S3 output. Logs written to stdout and S3 `/logs`.
+Without `--save-stages`, stages stream data in memory (faster, cheaper). With it, each stage's output is saved to S3 so you can resume from any stage or inspect intermediate data. Logs always written to stdout and S3 `/logs`.
 
 ---
 
