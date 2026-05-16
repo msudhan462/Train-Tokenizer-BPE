@@ -2,7 +2,7 @@
 
 A production-grade Byte Pair Encoding (BPE) tokenizer pipeline modeled after how frontier AI companies (OpenAI, Google, Meta) train tokenizers at 100TB+ scale. Covers the full 8-stage preprocessing and training pipeline — from raw web dumps to a trained, validated tokenizer artifact in S3.
 
-Built as a resume/portfolio project. One manual CLI command triggers the entire pipeline via AWS Step Functions → Batch Fargate.
+One manual CLI command triggers the entire pipeline via AWS Step Functions → Batch Fargate.
 
 LinkedIn write-up: https://www.linkedin.com/feed/update/urn:li:activity:7460340028435632128/
 
