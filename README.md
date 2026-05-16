@@ -41,6 +41,8 @@ Most tutorials jump straight to BPE training. Real industry pipelines run 8 stag
 
 ## Architecture
 
+![AWS Architecture](docs/AWS%20Architecture.png)
+
 ```
 [ Local Machine ]
       |
