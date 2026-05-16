@@ -1,0 +1,30 @@
+name: lint
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint dependencies
+        run: pip install ruff mypy boto3-stubs[s3] types-beautifulsoup4
+
+      - name: ruff check
+        run: ruff check src/
+
+      - name: ruff format (check only)
+        run: ruff format --check src/
+
+      - name: mypy
+        run: mypy src/ --ignore-missing-imports --python-version 3.11

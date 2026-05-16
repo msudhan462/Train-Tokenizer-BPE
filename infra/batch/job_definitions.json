@@ -1,0 +1,118 @@
+{
+  "_comment": "Reference template for Batch job definitions. Registered programmatically by infra/setup.sh. Placeholders (__ACCOUNT_ID__ etc.) are substituted at registration time.",
+  "shared_container_properties": {
+    "executionRoleArn": "arn:aws:iam::__ACCOUNT_ID__:role/TokenizerBatchRole",
+    "jobRoleArn": "arn:aws:iam::__ACCOUNT_ID__:role/TokenizerBatchRole",
+    "resourceRequirements": [
+      {"type": "VCPU", "value": "4"},
+      {"type": "MEMORY", "value": "16384"}
+    ],
+    "networkConfiguration": {"assignPublicIp": "ENABLED"},
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/aws/batch/tokenizer",
+        "awslogs-region": "__REGION__",
+        "awslogs-stream-prefix": "batch"
+      }
+    }
+  },
+  "job_definitions": [
+    {
+      "jobDefinitionName": "tokenizer-stage-01_ingest",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/01_ingest/download.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "SOURCE_TYPE", "value": "hf_dataset"},
+        {"name": "SOURCE_DATASET", "value": "allenai/c4"},
+        {"name": "SOURCE_CONFIG", "value": "en"},
+        {"name": "SHARD_SIZE", "value": "10000"},
+        {"name": "MAX_DOCS", "value": "0"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-02_filter",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/02_filter/content_filter.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "MIN_CHARS", "value": "100"},
+        {"name": "MAX_CHARS", "value": "1000000"},
+        {"name": "MAX_HTML_RATIO", "value": "0.1"},
+        {"name": "MIN_AVG_LINE_LEN", "value": "20"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-03_extract",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/03_extract/text_extract.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-04_encoding",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/04_encoding/encoding_recovery.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-05_language",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/05_language/lang_detect.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "MIN_LANG_CONFIDENCE", "value": "0.8"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-06_deduplicate",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/06_deduplicate/dedup.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "MINHASH_THRESHOLD", "value": "0.85"},
+        {"name": "MINHASH_PERMS", "value": "128"},
+        {"name": "SHINGLE_SIZE", "value": "5"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-07_rebalance",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/07_rebalance/rebalance.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "MAX_LANG_FRACTION", "value": "0.3"},
+        {"name": "TARGET_DOCS", "value": "0"},
+        {"name": "SHARD_SIZE", "value": "10000"},
+        {"name": "RANDOM_SEED", "value": "42"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-08_train",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/08_train/train.py"],
+      "resourceRequirements": [
+        {"type": "VCPU", "value": "8"},
+        {"type": "MEMORY", "value": "32768"}
+      ],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "VOCAB_SIZE", "value": "32000"},
+        {"name": "MIN_FREQUENCY", "value": "2"}
+      ]
+    },
+    {
+      "jobDefinitionName": "tokenizer-stage-08_validate",
+      "image": "__ECR_URI__:latest",
+      "command": ["src/08_train/validate.py"],
+      "environment": [
+        {"name": "S3_BUCKET", "value": "__S3_BUCKET__"},
+        {"name": "NUM_VALIDATION_DOCS", "value": "1000"}
+      ]
+    }
+  ]
+}

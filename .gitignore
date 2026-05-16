@@ -7,3 +7,17 @@ venv/
 *.pem
 *.key
 .DS_Store
+
+# type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+
+# local test outputs
+/tmp/
+*.jsonl
+*.jsonl.gz
+
+# IDE
+.idea/
+.vscode/
+

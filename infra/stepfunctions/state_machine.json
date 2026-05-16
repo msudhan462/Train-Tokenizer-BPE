@@ -1,0 +1,260 @@
+{
+  "Comment": "BPE Tokenizer Training Pipeline — 8-stage preprocessing + training on AWS Batch Fargate. Input: {bucket, run_id, vocab_size}",
+  "StartAt": "Stage01Ingest",
+  "States": {
+    "Stage01Ingest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage01-ingest",
+        "JobDefinition": "__JOB_DEF_PREFIX__-01_ingest",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"},
+            {"Name": "VOCAB_SIZE", "Value.$": "$.vocab_size"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage02Filter",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage02Filter": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage02-filter",
+        "JobDefinition": "__JOB_DEF_PREFIX__-02_filter",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage03Extract",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage03Extract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage03-extract",
+        "JobDefinition": "__JOB_DEF_PREFIX__-03_extract",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage04Encoding",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage04Encoding": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage04-encoding",
+        "JobDefinition": "__JOB_DEF_PREFIX__-04_encoding",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage05Language",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage05Language": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage05-language",
+        "JobDefinition": "__JOB_DEF_PREFIX__-05_language",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage06Deduplicate",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage06Deduplicate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage06-deduplicate",
+        "JobDefinition": "__JOB_DEF_PREFIX__-06_deduplicate",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage07Rebalance",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage07Rebalance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage07-rebalance",
+        "JobDefinition": "__JOB_DEF_PREFIX__-07_rebalance",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage08Train",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage08Train": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage08-train",
+        "JobDefinition": "__JOB_DEF_PREFIX__-08_train",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"},
+            {"Name": "VOCAB_SIZE", "Value.$": "$.vocab_size"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "Stage08Validate",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 120,
+          "MaxAttempts": 1,
+          "BackoffRate": 1.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "Stage08Validate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::batch:submitJob.sync",
+      "Parameters": {
+        "JobName": "stage08-validate",
+        "JobDefinition": "__JOB_DEF_PREFIX__-08_validate",
+        "JobQueue": "__BATCH_QUEUE__",
+        "ContainerOverrides": {
+          "Environment": [
+            {"Name": "RUN_ID", "Value.$": "$.run_id"},
+            {"Name": "S3_BUCKET", "Value.$": "$.bucket"}
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Next": "PipelineSucceeded",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "PipelineFailed", "ResultPath": "$.error"}]
+    },
+
+    "PipelineSucceeded": {
+      "Type": "Succeed"
+    },
+
+    "PipelineFailed": {
+      "Type": "Fail",
+      "ErrorPath": "$.error.Error",
+      "CausePath": "$.error.Cause"
+    }
+  }
+}
